@@ -22,6 +22,18 @@ def test_skips_private_dunder_decorated_and_all_exports(write, tmp_path):
     assert {f["name"] for f in rep["findings"]} == {"_private"}
 
 
+def test_commonjs_exports_report_only_unrequired_names(write, tmp_path):
+    write(
+        "lib/util.cjs",
+        "function usedHelper() {}\nfunction unusedHelper() {}\nmodule.exports = { usedHelper, unusedHelper };\n",
+    )
+    write("app/main.js", "const { usedHelper } = require('../lib/util');\nusedHelper();\n")
+    rc, rep = run_json(mod, [str(tmp_path), "--json"])
+    assert rc == 0
+    names = {f["name"] for f in rep["findings"]}
+    assert names == {"unusedHelper"}
+
+
 def test_javascript_exports_without_importers_are_reported(write, tmp_path):
     write("src/a.ts", "export function usedFn() {}\nexport const unusedConst = 1;\nexport class UnusedClass {}\nexport { usedFn as alias, other };\nconst other = 2;\n")
     write("src/b.ts", "import { usedFn, alias } from './a';\nusedFn(); alias();\n")

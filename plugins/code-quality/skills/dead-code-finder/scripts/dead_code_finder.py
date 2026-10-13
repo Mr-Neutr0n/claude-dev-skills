@@ -42,6 +42,10 @@ FRAMEWORK_DECORATORS = {"route", "get", "post", "put", "patch", "delete", "task"
 JS_EXPORT_RE = re.compile(r"^\s*export\s+(?:default\s+)?(?:async\s+)?(?:function\*?|class|const|let|var|enum|interface|type|abstract\s+class)\s+([A-Za-z_$][\w$]*)", re.M)
 JS_EXPORT_LIST_RE = re.compile(r"^\s*export\s*\{([^}]*)\}\s*(?:;|$)", re.M)
 JS_EXPORT_DEFAULT_RE = re.compile(r"^\s*export\s+default\b", re.M)
+JS_MODULE_EXPORTS_OBJ_RE = re.compile(r"module\.exports\s*=\s*\{([^}]*)\}", re.M)
+JS_MODULE_EXPORTS_DOT_RE = re.compile(r"module\.exports\.([A-Za-z_$][\w$]*)\s*=", re.M)
+JS_EXPORTS_DOT_RE = re.compile(r"^\s*exports\.([A-Za-z_$][\w$]*)\s*=", re.M)
+JS_IDENT_RE = re.compile(r"^[A-Za-z_$][\w$]*$")
 WORD_RE = re.compile(r"[A-Za-z_$][\w$]*")
 
 
@@ -116,6 +120,18 @@ def python_candidates(path: Path, tree: ast.Module, include_private: bool) -> li
     return out
 
 
+def _js_object_export_names(inner: str) -> list[tuple[str, int]]:
+    names: list[tuple[str, int]] = []
+    for part in inner.split(","):
+        part = part.strip()
+        if not part or part.startswith("..."):
+            continue
+        key = part.split(":")[0].strip()
+        if JS_IDENT_RE.match(key):
+            names.append((key, part.find(key)))
+    return names
+
+
 def js_candidates(path: Path, text: str) -> list[dict]:
     out: list[dict] = []
     if path.stem == "index" or JS_EXPORT_DEFAULT_RE.search(text) and path.suffix in {".jsx", ".tsx"}:
@@ -132,6 +148,18 @@ def js_candidates(path: Path, text: str) -> list[dict]:
             name = part.split(" as ")[-1].strip()
             if name and name != "default":
                 out.append({"file": str(path), "line": line, "name": name, "kind": "export", "qualname": name, "language": "javascript"})
+    for m in JS_MODULE_EXPORTS_OBJ_RE.finditer(text):
+        inner_start = m.start(1)
+        for name, offset in _js_object_export_names(m.group(1)):
+            pos = inner_start + offset
+            line = text.count("\n", 0, pos) + 1
+            out.append({"file": str(path), "line": line, "name": name, "kind": "export", "qualname": name, "language": "javascript"})
+    for m in JS_MODULE_EXPORTS_DOT_RE.finditer(text):
+        line = text.count("\n", 0, m.start()) + 1
+        out.append({"file": str(path), "line": line, "name": m.group(1), "kind": "export", "qualname": m.group(1), "language": "javascript"})
+    for m in JS_EXPORTS_DOT_RE.finditer(text):
+        line = text.count("\n", 0, m.start()) + 1
+        out.append({"file": str(path), "line": line, "name": m.group(1), "kind": "export", "qualname": m.group(1), "language": "javascript"})
     return out
 
 
