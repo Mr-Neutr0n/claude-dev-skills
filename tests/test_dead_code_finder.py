@@ -34,6 +34,27 @@ def test_commonjs_exports_report_only_unrequired_names(write, tmp_path):
     assert names == {"unusedHelper"}
 
 
+def test_multiline_module_exports_report_each_key_line(write, tmp_path):
+    write(
+        "lib/util.cjs",
+        "function first() {}\nfunction second() {}\nmodule.exports = {\n  first,\n  second,\n};\n",
+    )
+    write("app/main.js", "const { first } = require('../lib/util');\nfirst();\n")
+    rc, rep = run_json(mod, [str(tmp_path), "--json"])
+    assert rc == 0
+    lines = {f["name"]: f["line"] for f in rep["findings"]}
+    # Each key is on its own line, not all on the opening brace.
+    assert lines == {"second": 5}
+
+
+def test_module_exports_dot_and_exports_dot(write, tmp_path):
+    write("a.cjs", "function a() {}\nmodule.exports.a = a;\n")
+    write("b.cjs", "function b() {}\nexports.b = b;\n")
+    rc, rep = run_json(mod, [str(tmp_path), "--json"])
+    assert rc == 0
+    assert {f["name"] for f in rep["findings"]} == {"a", "b"}
+
+
 def test_javascript_exports_without_importers_are_reported(write, tmp_path):
     write("src/a.ts", "export function usedFn() {}\nexport const unusedConst = 1;\nexport class UnusedClass {}\nexport { usedFn as alias, other };\nconst other = 2;\n")
     write("src/b.ts", "import { usedFn, alias } from './a';\nusedFn(); alias();\n")

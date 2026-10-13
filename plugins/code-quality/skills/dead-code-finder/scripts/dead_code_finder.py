@@ -120,15 +120,25 @@ def python_candidates(path: Path, tree: ast.Module, include_private: bool) -> li
     return out
 
 
-def _js_object_export_names(inner: str) -> list[tuple[str, int]]:
+def _js_object_export_names(inner: str, inner_start: int) -> list[tuple[str, int]]:
+    """Keys of a ``module.exports = { ... }`` literal, with their absolute offsets.
+
+    Offsets are measured against the whole source (``inner_start`` is where the
+    object body begins), so a multi-line literal reports each key on its own line
+    rather than all of them on the opening brace.
+    """
     names: list[tuple[str, int]] = []
-    for part in inner.split(","):
-        part = part.strip()
+    offset = 0
+    for raw in inner.split(","):
+        start, offset = offset, offset + len(raw) + 1
+        part = raw.strip()
         if not part or part.startswith("..."):
             continue
         key = part.split(":")[0].strip()
         if JS_IDENT_RE.match(key):
-            names.append((key, part.find(key)))
+            key_at = inner.find(key, start, start + len(raw))
+            if key_at >= 0:
+                names.append((key, inner_start + key_at))
     return names
 
 
@@ -150,8 +160,7 @@ def js_candidates(path: Path, text: str) -> list[dict]:
                 out.append({"file": str(path), "line": line, "name": name, "kind": "export", "qualname": name, "language": "javascript"})
     for m in JS_MODULE_EXPORTS_OBJ_RE.finditer(text):
         inner_start = m.start(1)
-        for name, offset in _js_object_export_names(m.group(1)):
-            pos = inner_start + offset
+        for name, pos in _js_object_export_names(m.group(1), inner_start):
             line = text.count("\n", 0, pos) + 1
             out.append({"file": str(path), "line": line, "name": name, "kind": "export", "qualname": name, "language": "javascript"})
     for m in JS_MODULE_EXPORTS_DOT_RE.finditer(text):
