@@ -55,6 +55,29 @@ def test_module_exports_dot_and_exports_dot(write, tmp_path):
     assert {f["name"] for f in rep["findings"]} == {"a", "b"}
 
 
+def test_module_exports_object_with_inline_function_values(write, tmp_path):
+    # A `}` inside a value must not end the object scan, or later keys vanish.
+    write(
+        "lib/util.cjs",
+        "module.exports = {\n  a: function () { return 1; },\n  b,\n  c: x,\n};\n",
+    )
+    rc, rep = run_json(mod, [str(tmp_path), "--json"])
+    assert rc == 0
+    lines = {f["name"]: f["line"] for f in rep["findings"]}
+    assert lines == {"a": 2, "b": 3, "c": 4}
+
+
+def test_module_exports_object_skips_spread_and_computed_keys(write, tmp_path):
+    write(
+        "lib/util.cjs",
+        "module.exports = {\n  helper() { return 2; },\n  nested: { deep: 1 },\n  ...rest,\n  [k]: 1,\n  plain,\n};\n",
+    )
+    rc, rep = run_json(mod, [str(tmp_path), "--json"])
+    assert rc == 0
+    names = {f["name"] for f in rep["findings"]}
+    assert names == {"helper", "nested", "plain"}
+
+
 def test_javascript_exports_without_importers_are_reported(write, tmp_path):
     write("src/a.ts", "export function usedFn() {}\nexport const unusedConst = 1;\nexport class UnusedClass {}\nexport { usedFn as alias, other };\nconst other = 2;\n")
     write("src/b.ts", "import { usedFn, alias } from './a';\nusedFn(); alias();\n")
